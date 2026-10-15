@@ -21,6 +21,16 @@ public class ProductRepository
         }, ct);
     }
 
+    public Task<List<Product>> GetAllAsync(CancellationToken ct)
+    {
+        return Simulate.DbQueryAsync<List<Product>>(Name, "all products", async token =>
+        {
+            var products = await _store.ReadAllAsync<Product>(DataFiles.Products, token);
+            Log.Success(Name, $"Found {products.Count} product(s)");
+            return products;
+        }, ct);
+    }
+
     public async Task<bool> ReserveStockAsync(int productId, int qty, CancellationToken ct)
     {
         bool reserved = false;
@@ -63,7 +73,7 @@ public class ProductRepository
         Log.Info(Name, $"Updating stock of Product #{productId}...");
         await Task.Delay(400, ct);
 
-        // write the new stock, no lock between the read and the write
+        // write the new stock
         product.StockQuantity -= qty;
         await _store.WriteAllAsync(DataFiles.Products, products, ct);
 

@@ -1,4 +1,4 @@
-﻿using Mini_Project___Order_Processing_System.Data;
+using Mini_Project___Order_Processing_System.Data;
 
 namespace Mini_Project___Order_Processing_System.Runners;
 
@@ -15,8 +15,11 @@ public class RaceConditionDemo
 
         Task<bool> order10 = products.ReserveStockUnsafeAsync(4, 1, ct);
         Task<bool> order11 = products.ReserveStockUnsafeAsync(4, 1, ct);
-        await Task.WhenAll(order10, order11);
-        await PrintResultAsync(order10.Result, order11.Result, ct);
+
+        // then await them one by one
+        bool result10 = await order10;
+        bool result11 = await order11;
+        await PrintResultAsync(result10, result11, ct);
 
         // safe version
         Console.WriteLine("===== Safe =====");
@@ -24,8 +27,10 @@ public class RaceConditionDemo
 
         order10 = products.ReserveStockAsync(4, 1, ct);
         order11 = products.ReserveStockAsync(4, 1, ct);
-        await Task.WhenAll(order10, order11);
-        await PrintResultAsync(order10.Result, order11.Result, ct);
+
+        result10 = await order10;
+        result11 = await order11;
+        await PrintResultAsync(result10, result11, ct);
     }
 
     private static async Task SetKeyboardStockAsync(CancellationToken ct)

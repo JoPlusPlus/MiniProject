@@ -1,25 +1,30 @@
-﻿namespace Mini_Project___Order_Processing_System.Services
+namespace Mini_Project___Order_Processing_System.Services
 {
-    public class OrderPricer
+    public static class OrderPricer
     {
-        private static PricingService pricingService = new PricingService(new[] {1,4,7,10,13,16,19});
+        
+        private static PricingService pricingService = new PricingService(new[] { 7 });
+        
         public async static Task PriceOrderAsync(Order order, CancellationToken ct)
         {
-            decimal subTotal = await pricingService.CalculateSubTotalAsync(order, ct);
-            Task<decimal> t1 = pricingService.GetDiscountAsync(order, ct);
-            Task<decimal> t2 = pricingService.CalculateShippingCostAsync(order, ct);
+            order.SubTotal = await pricingService.CalculateSubTotalAsync(order, ct);
 
-            await Task.WhenAll(t1, t2);
+            Task<decimal> discountTask = pricingService.GetDiscountAsync(order, ct);
+            Task<decimal> shippingTask = pricingService.CalculateShippingCostAsync(order, ct);
 
-            decimal discount = t1.Result;
-            decimal shippingCost = t2.Result;
+            order.Discount = await discountTask;
+            order.ShippingCost = await shippingTask;
+
+            order.TotalAmount = Math.Round(order.SubTotal - order.Discount + order.ShippingCost, 2, MidpointRounding.AwayFromZero);
         }
         public async static Task PriceOrderSequentialAsync(Order order, CancellationToken ct)
         {
-            decimal subTotal = await pricingService.CalculateSubTotalAsync(order, ct);
+            order.SubTotal = await pricingService.CalculateSubTotalAsync(order, ct);
 
-            decimal discount = await pricingService.GetDiscountAsync(order,ct);
-            decimal shippingCost = await pricingService.CalculateShippingCostAsync(order, ct);
+            order.Discount = await pricingService.GetDiscountAsync(order, ct);
+            order.ShippingCost = await pricingService.CalculateShippingCostAsync(order, ct);
+
+            order.TotalAmount = Math.Round(order.SubTotal - order.Discount + order.ShippingCost, 2, MidpointRounding.AwayFromZero);
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿using Mini_Project___Order_Processing_System.Data;
+using Mini_Project___Order_Processing_System.Data;
 using Mini_Project___Order_Processing_System.MyExceptions;
 
 namespace Mini_Project___Order_Processing_System.Services;
@@ -12,85 +12,87 @@ public class PricingService
     }
 
     private static JsonFileStore _store = new JsonFileStore();
-    public async Task<decimal> CalculateSubTotalAsync(Order order, CancellationToken ct)
-    {
-        decimal subTotal = 0;
-        var products = await _store.ReadAllAsync<Product>(DataFiles.Products, ct);
-        foreach(var item in order.Items)
-        {
-            Product p = products.FirstOrDefault(p =>  p.Id == item.ProductId)!;
-            item.UnitPrice = p.Price;
-            subTotal += item.UnitPrice * item.Quantity;
-        }
-        return subTotal;
-    }
-    public async Task<decimal> GetDiscountAsync(Order order, CancellationToken ct) {
-        decimal discount = 0;
-        CustomerRepository customers = new CustomerRepository();
-        CouponRepository coupons = new CouponRepository();
+    private static CustomerRepository customers = new CustomerRepository();
+    private static CouponRepository coupons = new CouponRepository();
 
+    public Task<decimal> CalculateSubTotalAsync(Order order, CancellationToken ct)
+    {
+        return Simulate.DbQueryAsync<decimal>("PricingService", $"SubTotal of Order #{order.Id}", async token =>
+        {
+            decimal subTotal = 0;
+            var products = await _store.ReadAllAsync<Product>(DataFiles.Products, token);
+            foreach (var item in order.Items)
+            {
+                Product product = products.First(x => x.Id == item.ProductId);
+                item.UnitPrice = product.Price;
+                subTotal += item.UnitPrice * item.Quantity;
+            }
+
+            subTotal = Math.Round(subTotal, 2, MidpointRounding.AwayFromZero);
+            Log.Success("PricingService", $"Order #{order.Id} SubTotal = {subTotal}");
+            return subTotal;
+        }, ct);
+    }
+    public async Task<decimal> GetDiscountAsync(Order order, CancellationToken ct)
+    {
+        await Simulate.ExternalApiAsync("PricingService", $"discount for Order #{order.Id}", ct);
+
+        decimal percent = 0;
+
+        // loyalty
         Customer? customer = await customers.GetByIdAsync(order.CustomerId, ct);
-        if(customer == null)
+        if (customer == null)
         {
             Log.Error("PricingService", $"Customer #{order.CustomerId} not found");
         }
-        // loyality
-        if (customer.LoyaltyTier == LoyaltyTier.Silver) discount += 5; 
-        else if (customer.LoyaltyTier == LoyaltyTier.Gold) discount += 10;
+        else if (customer.LoyaltyTier == LoyaltyTier.Silver) percent += 5;
+        else if (customer.LoyaltyTier == LoyaltyTier.Gold) percent += 10;
 
-        // order has no coupon code
-        if(order.CouponCode == null)
+        // coupon
+        if (order.CouponCode != null)
         {
-            order.Discount = await this.CalculateSubTotalAsync(order, ct) * (discount / 100);
-            return discount;
-        }
-        // order has invalid coupon code
-        var coupon = await coupons.GetByCodeAsync(order.CouponCode,ct);
-        if(coupon == null)
-        {
-            order.Discount = await this.CalculateSubTotalAsync(order, ct) * (discount / 100);
-            return discount;
-        }
-        else
-        {
-            discount += coupon.DiscountPercent;
-            if (discount > 30) discount = 30;
-            order.Discount = await this.CalculateSubTotalAsync(order, ct) * (discount / 100);
-            return discount;
+            var coupon = await coupons.GetByCodeAsync(order.CouponCode, ct);
+            if (coupon != null) percent += coupon.DiscountPercent;
         }
 
+        if (percent > 30) percent = 30;
+
+        decimal discount = Math.Round(order.SubTotal * percent / 100, 2, MidpointRounding.AwayFromZero);
+        Log.Success("PricingService", $"Order #{order.Id} Discount = {discount} ({percent}%)");
+        return discount;
     }
     public async Task<decimal> CalculateShippingCostAsync(Order order, CancellationToken ct)
     {
-        var tryFindOrder = failShippingForOrderIds.FirstOrDefault(o => o == order.Id);
-        if(tryFindOrder != 0)
-        {
-            try
-            {
-                throw new ShippingProviderUnavailableException();
+        await Simulate.StepAsync("PricingService", "DNS lookup and handshake...", 150, ct);
 
-            }catch (Exception ex)
-            {
-                Log.Error("PricingService", $"{ex.Message} for order #{order.Id}");
-            }
+        // controlled failure
+        if (failShippingForOrderIds.Contains(order.Id))
+        {
+            var ex = new ShippingProviderUnavailableException();
+            Log.Error("PricingService", $"{ex.Message} for order #{order.Id}");
+            throw ex;
         }
+
+        await Simulate.StepAsync("PricingService", $"Sending request (shipping for Order #{order.Id})...", 300, ct);
+        await Simulate.StepAsync("PricingService", "Waiting for response...", Random.Shared.Next(500, 1500 + 1), ct);
 
         var products = await _store.ReadAllAsync<Product>(DataFiles.Products, ct);
 
-        decimal subTotal = await this.CalculateSubTotalAsync(order, ct);
-        if (subTotal >= 1000) return 0;
+        // free shipping
+        if (order.SubTotal >= 1000) return 0;
 
-        decimal totalQuantity = 0;
+        int totalQuantity = 0;
         decimal totalWeight = 0;
-        foreach(var item in order.Items)
+        foreach (var item in order.Items)
         {
+            Product product = products.First(x => x.Id == item.ProductId);
             totalQuantity += item.Quantity;
-            var p = products.FirstOrDefault(p => p.Id == item.ProductId);
-            if(p != null)
-            {
-                totalWeight += p.WeightKg;
-            }
+            totalWeight += product.WeightKg * item.Quantity;
         }
-        return 5m + 1.5m * subTotal + 2m * totalWeight;
+
+        decimal shipping = 5m + 1.5m * totalQuantity + 2m * totalWeight;
+        shipping = Math.Round(shipping, 2, MidpointRounding.AwayFromZero);
+        Log.Success("PricingService", $"Order #{order.Id} Shipping = {shipping}");
+        return shipping;
     }
 }

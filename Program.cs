@@ -1,7 +1,4 @@
-using System.Diagnostics;
-using Mini_Project___Order_Processing_System.Data;
 using Mini_Project___Order_Processing_System.Runners;
-using Mini_Project___Order_Processing_System.Services;
 
 namespace Mini_Project___Order_Processing_System;
 
@@ -9,50 +6,39 @@ public static class Program
 {
     public static async Task Main(string[] args)
     {
-        await RunTask8_3();
-    }
-    public static async Task RunTask8_2()
-    {
-        var token = new CancellationToken();
-        JsonFileStore store = new JsonFileStore();
-        var orders = await store.ReadAllAsync<Order>(DataFiles.Orders, token);
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-        var watch = Stopwatch.StartNew();
-        foreach (var order in orders)
+        // one cancellation source for the whole run
+        using var cts = new CancellationTokenSource();
+
+        // Ctrl+C cancels the run instead of killing the program
+        Console.CancelKeyPress += (sender, e) =>
         {
-            try
-            {
-                await OrderPricer.PriceOrderAsync(order, token);
-            }
-            catch (Exception ex)
-            {
-            }
+            e.Cancel = true;
+            cts.Cancel();
+        };
 
-        }
-        watch.Stop();
-        double asyncSeconds = watch.Elapsed.TotalSeconds;
-        watch.Restart();
-
-        foreach (var order in orders)
+        // --cancel-after <ms>
+        int index = Array.IndexOf(args, "--cancel-after");
+        if (index >= 0 && index + 1 < args.Length && int.TryParse(args[index + 1], out int ms))
         {
-            try
-            {
-                await OrderPricer.PriceOrderSequentialAsync(order, token);
-            }
-            catch (Exception ex)
-            {
-            }
-
+            cts.CancelAfter(ms);
         }
-        watch.Stop();
-        double sequentialSeconds = watch.Elapsed.TotalSeconds;
-        Console.WriteLine($"Async = {asyncSeconds} , seq = {sequentialSeconds}");
-    }
-    public static async Task RunTask8_3()
-    {
-        var token = new CancellationToken();
 
-        await RaceConditionDemo.RunAsync(token);
+        string phase = "phase2";
+        if (args.Length > 0 && !args[0].StartsWith("--")) phase = args[0];
+
+        if (phase == "phase1")
+        {
+            await new Phase1Runner().RunAsync(cts.Token);
+        }
+        else if (phase == "phase2")
+        {
+            await new Phase2Runner().RunAsync(cts.Token);
+        }
+        else
+        {
+            Console.WriteLine("Unknown phase: " + phase);
+        }
     }
 }
-
